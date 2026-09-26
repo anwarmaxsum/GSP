@@ -1,0 +1,221 @@
+import torch
+import torch.nn as nn
+from harl.models.base.distributions import Categorical, DiagGaussian
+
+
+class ACTLayer(nn.Module):
+    """MLP Module to compute actions."""
+
+    def __init__(
+        self, action_space, inputs_dim, initialization_method, gain, args=None
+    ):
+        """Initialize ACTLayer.
+        Args:
+            action_space: (gym.Space) action space.
+            inputs_dim: (int) dimension of network input.
+            initialization_method: (str) initialization method.
+            gain: (float) gain of the output layer of the network.
+            args: (dict) arguments relevant to the network.
+        """
+        super(ACTLayer, self).__init__()
+        self.action_type = action_space.__class__.__name__
+        self.multidiscrete_action = False
+
+        if "max_act_length" in args.keys():
+            self.output_size = args["max_act_length"]
+        else:
+            self.output_size = 128
+        
+        if action_space.__class__.__name__ == "Discrete":
+            action_dim = action_space.n
+            # action_dim = self.output_size
+            self.action_dim = action_dim
+           
+
+            self.action_out = Categorical(
+                # inputs_dim, action_dim, initialization_method, gain
+                inputs_dim, self.output_size, initialization_method, gain
+            )
+        elif action_space.__class__.__name__ == "Box":
+            action_dim = action_space.shape[0]
+            # action_dim = self.output_size
+            self.action_dim = action_dim
+
+            self.action_out = DiagGaussian(
+                # inputs_dim, action_dim, initialization_method, gain, args
+                inputs_dim, self.output_size, initialization_method, gain, args
+            )
+        elif action_space.__class__.__name__ == "MultiDiscrete":
+            self.multidiscrete_action = True
+            action_dims = action_space.nvec
+            # action_dim = self.output_size
+            action_outs = []
+            self.action_dims = []
+            for action_dim in action_dims:
+                action_outs.append(
+                    # Categorical(inputs_dim, action_dim, initialization_method, gain)
+                    Categorical(inputs_dim, self.output_size, initialization_method, gain)
+                )
+                self.action_dims.append(action_dim)
+            self.action_outs = nn.ModuleList(action_outs)
+
+    def forward(self, x, available_actions=None, deterministic=False):
+        """Compute actions and action logprobs from given input.
+        Args:
+            x: (torch.Tensor) input to network.
+            available_actions: (torch.Tensor) denotes which actions are available to agent
+                                  (if None, all actions available)
+            deterministic: (bool) whether to sample from action distribution or return the mode.
+        Returns:
+            actions: (torch.Tensor) actions to take.
+            action_log_probs: (torch.Tensor) log probabilities of taken actions.
+        """
+
+        if self.multidiscrete_action:
+            actions = []
+            action_log_probs = []
+            idx = 0
+            for action_out in self.action_outs:
+                
+                action_distribution = action_out(x, available_actions)
+
+                action = (
+                    action_distribution.mode()
+                    if deterministic
+                    else action_distribution.sample()
+                )               
+                action = action[:,:self.action_dim]
+
+                action_log_prob = action_distribution.log_probs(action)
+
+                action_log_prob  = action_log_prob[:,:self.action_dim]
+
+                actions.append(action)
+                action_log_probs.append(action_log_prob)
+
+                idx = idx + 1 
+            actions = torch.cat(actions, dim=-1)
+            action_log_probs = torch.cat(action_log_probs, dim=-1).sum(
+                dim=-1, keepdim=True
+            )
+        else:
+            action_distribution = self.action_out(x, available_actions)
+            
+        
+            actions = (
+                action_distribution.mode()
+                if deterministic
+                else action_distribution.sample()
+            )
+
+            # actions = actions[:,:self.action_dim]
+
+            action_log_probs = action_distribution.log_probs(actions)
+            # action_log_probs  = action_log_probs[:,:self.action_dim]
+            
+            # print(action_log_probs.shape)
+        
+        # actions = actions[:,:self.action_dim]   
+        
+        # print(action_log_probs.shape)
+        # print("actions shape: ", actions.shape)
+
+        return actions, action_log_probs
+
+    def get_logits(self, x, available_actions=None):
+        """Get action logits from inputs.
+        Args:
+            x: (torch.Tensor) input to network.
+            available_actions: (torch.Tensor) denotes which actions are available to agent
+                                      (if None, all actions available)
+        Returns:
+            action_logits: (torch.Tensor) logits of actions for the given inputs.
+        """
+        if self.multidiscrete_action:
+            action_logits = []
+            for action_out in self.action_outs:
+                action_distribution = action_out(x, available_actions)
+                # action_logits.append(action_distribution.logits)
+                action_logits.append(action_distribution.logits[:,:self.action_dim])
+        else:
+            action_distribution = self.action_out(x, available_actions)
+            action_logits = action_distribution.logits
+            action_logits  = action_logits[:,:self.action_dim]
+
+        return action_logits
+
+    def evaluate_actions(self, x, action, available_actions=None, active_masks=None):
+        """Compute action log probability, distribution entropy, and action distribution.
+        Args:
+            x: (torch.Tensor) input to network.
+            action: (torch.Tensor) actions whose entropy and log probability to evaluate.
+            available_actions: (torch.Tensor) denotes which actions are available to agent
+                                                              (if None, all actions available)
+            active_masks: (torch.Tensor) denotes whether an agent is active or dead.
+        Returns:
+            action_log_probs: (torch.Tensor) log probabilities of the input actions.
+            dist_entropy: (torch.Tensor) action distribution entropy for the given inputs.
+            action_distribution: (torch.distributions) action distribution.
+        """
+        if self.multidiscrete_action:
+            action = torch.transpose(action, 0, 1)
+            action_log_probs = []
+            dist_entropy = []
+            for action_out, act in zip(self.action_outs, action):
+                action_distribution = action_out(x)
+                action_log_probs.append(
+                    action_distribution.log_probs(act.unsqueeze(-1))
+                )
+                if active_masks is not None:
+                    dist_entropy.append(
+                        (action_distribution.entropy() * active_masks)
+                        / active_masks.sum()
+                    )
+                else:
+                    dist_entropy.append(
+                        action_distribution.entropy() / action_log_probs[-1].size(0)
+                    )
+            action_log_probs = torch.cat(action_log_probs, dim=-1).sum(
+                dim=-1, keepdim=True
+            )
+            dist_entropy = (
+                torch.cat(dist_entropy, dim=-1).sum(dim=-1, keepdim=True).mean()
+            )
+            return action_log_probs, dist_entropy, None
+        else:
+            # action  = action[:,:self.action_dim]
+            # if action.shape[-1]
+
+            action_distribution = self.action_out(x, available_actions)
+
+            # action_distribution.scale = action_distribution.scale[:,:self.action_dim]
+            # action_distribution.loc = action_distribution.loc[:,:self.action_dim]
+           
+            # print(action_distribution)
+            # action = action[:,:self.action_dim]
+            # print(action.shape)
+
+            if self.action_type != "Discrete" and action.shape[-1] < self.output_size:
+                pad = torch.zeros(action.shape[0], self.output_size-action.shape[1]).to(action.device)
+                action = torch.cat((action,pad),dim=-1)
+
+            action_log_probs = action_distribution.log_probs(action)
+
+            # action_distribution.logits = action_distribution.logits[:,:self.action_dim]
+            # action_log_probs = action_distribution.log_probs[:,:self.action_dim]
+
+            action_log_probs  = action_log_probs[:,:self.action_dim]
+
+            if active_masks is not None:
+                if self.action_type == "Discrete":
+                    dist_entropy = (
+                        action_distribution.entropy() * active_masks.squeeze(-1)
+                    ).sum() / active_masks.sum()
+                else:
+                    dist_entropy = (
+                        action_distribution.entropy() * active_masks.squeeze(-1)
+                    ).sum() / active_masks.sum()
+            else:
+                dist_entropy = action_distribution.entropy().mean()
+
+        return action_log_probs, dist_entropy, action_distribution
