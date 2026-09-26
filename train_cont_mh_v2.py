@@ -1,0 +1,605 @@
+"""Train an algorithm."""
+import argparse
+import json
+from harl.utils.configs_tools import get_defaults_yaml_args, update_args
+
+import copy
+
+import os
+import random
+
+import time
+
+
+
+
+def main():
+    """Main function."""
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    parser.add_argument(
+        "--algo",
+        type=str,
+        default="happo",
+        choices=[
+            "happo",
+            "hatrpo",
+            "haa2c",
+            "haddpg",
+            "hatd3",
+            "hasac",
+            "had3qn",
+            "maddpg",
+            "matd3",
+            "mappo",
+
+            "macpro",
+
+            "happo_mh",
+            "happo_mh2",
+            "happo_mh3",
+            "happo_mh5",
+            "happo_mh6",
+            "happo_mh7",
+            "happo_mh8",
+            "happo_mh9",
+            "happo_mh10",
+            "happo_mh11",
+            "happo_mh12",
+            "happo_mh13",
+            "happo_mh14",
+            "happo_mh15",
+            "happo_mh16",
+            "happo_mh17",
+
+
+            "happo_mh18",
+            "happo_mh19",
+            "happo_mh20",
+            "happo_mh21",
+            "happo_mh22",
+            "happo_mh23",
+
+            "happo_mh24",
+            "happo_mh25",
+            "happo_mh26",
+            "happo_mh27",
+            "happo_mh28",
+            "happo_mh29",
+
+            "happo_ewc",
+            "happo_si",
+            "happo_mas",
+
+            "happo_ewc_mh",
+        ],
+        help="Algorithm name. Choose from: happo, hatrpo, haa2c, haddpg, hatd3, hasac, had3qn, maddpg, matd3, mappo.",
+    )
+    parser.add_argument(
+        "--env",
+        type=str,
+        default="pettingzoo_mpe",
+        choices=[
+            "smac",
+            "mamujoco",
+            "pettingzoo_mpe",
+            "gym",
+            "football",
+            "dexhands",
+            "smacv2",
+            "lag",
+            "mpe2",
+            "bsk",
+            "atari",
+        ],
+        help="Environment name. Choose from: smac, mamujoco, pettingzoo_mpe, gym, football, dexhands, smacv2, lag.",
+    )
+    parser.add_argument(
+        "--exp_name", type=str, default="installtest", help="Experiment name."
+    )
+    parser.add_argument(
+        "--load_config",
+        type=str,
+        default="",
+        help="If set, load existing experiment config file instead of reading from yaml config file.",
+    )
+    parser.add_argument('--sz', action='store_true')
+    parser.add_argument('--sz1', action='store_true')
+    
+
+    args, unparsed_args = parser.parse_known_args()
+
+    def process(arg):
+        try:
+            return eval(arg)
+        except:
+            return arg
+
+    keys = [k[2:] for k in unparsed_args[0::2]]  # remove -- from argument
+    values = [process(v) for v in unparsed_args[1::2]]
+    unparsed_dict = {k: v for k, v in zip(keys, values)}
+    args = vars(args)  # convert to dict
+    if args["load_config"] != "":  # load config from existing config file
+        with open(args["load_config"], encoding="utf-8") as file:
+            all_config = json.load(file)
+        args["algo"] = all_config["main_args"]["algo"]
+        args["env"] = all_config["main_args"]["env"]
+        algo_args = all_config["algo_args"]
+        env_args = all_config["env_args"]
+    else:  # load config from corresponding yaml file
+        algo_args, env_args = get_defaults_yaml_args(args["algo"], args["env"])
+    update_args(unparsed_dict, algo_args, env_args)  # update args from command line
+
+    if args["env"] == "dexhands":
+        import isaacgym  # isaacgym has to be imported before PyTorch
+
+
+    # note: isaac gym does not support multiple instances, thus cannot eval separately
+    if args["env"] == "dexhands":
+        algo_args["eval"]["use_eval"] = False
+        algo_args["train"]["episode_length"] = env_args["hands_episode_length"]
+        task_var1 = "task"
+        task_var1_list = ["ShadowHandCatchOver2Underarm","ShadowHandCatchOver2Underarm"]
+
+    # start training
+    from harl.runners import RUNNER_REGISTRY
+
+
+    if args["env"] == "mamujoco":
+        task_var1 = "scenario"
+        task_var2 = "agent_conf"
+        # task_var1_list = ["Ant-v2","Walker2d-v2", "HalfCheetah-v2","Hopper-v2"]
+        # task_var2_list = ["4x2","2x3","2x3", "3x1"]
+
+        # task_var1_list = ["Hopper-v2","Walker2d-v2", "HalfCheetah-v2", "Ant-v2"]
+        # task_var2_list = ["3x1","2x3","2x3", "2x4"]
+
+        # task_var1_list = ["Swimmer-v2", "Walker2d-v2", "HalfCheetah-v2", "Ant-v2"]
+        # task_var2_list = ["2x1", "2x3","2x3", "2x4"]
+
+        #R3
+        # task_var1_list = ["Swimmer-v2", "Walker2d-v2", "HalfCheetah-v2", "Ant-v2"]
+        # task_var2_list = ["2x1", "2x3","2x3", "2x4"]
+
+        # R5
+        # task_var1_list = ["Swimmer-v2", "HalfCheetah-v2", "Ant-v2", "Hopper-v2"]
+        # task_var2_list = ["2x1", "2x3", "2x4", "3x1"]
+
+        #R6
+        # task_var1_list = ["Swimmer-v2", "HalfCheetah-v2", "Ant-v2", "HalfCheetah-v2"]
+        # task_var2_list = ["2x1", "2x3", "2x4", "3x2"]
+
+        #R7
+        task_var1_list = ["Swimmer-v2", "HalfCheetah-v2", "Ant-v2", "Ant-v2"]
+        task_var2_list = ["2x1", "2x3", "2x4", "4x2"]
+        algo_args["model"]["hidden_sizes"] = [160,160]
+        # algo_args["train"]["num_env_steps"] = 5000000
+
+        #R8
+        # task_var1_list = ["HalfCheetah-v2", "Ant-v2", "HalfCheetah-v2", "Ant-v2"]
+        # task_var2_list = ["2x3", "2x4", "3x2", "4x2"]
+        # algo_args["model"]["hidden_sizes"] = [160,160]
+
+        #R9
+        # task_var1_list = ["Ant-v2", "Ant-v2", "Ant-v2", "Ant-v2"]
+        # task_var2_list = ["2x4", "2x4d", "4x2", "8x1"]
+        # algo_args["model"]["hidden_sizes"] = [160,160]
+
+        #R10
+        # task_var1_list = ["Ant-v2", "Ant-v2", "Ant-v2", "Ant-v2"]
+        # task_var2_list = ["8x1", "4x2", "2x4", "2x4d"]
+        # algo_args["model"]["hidden_sizes"] = [160,160]
+
+
+    elif args["env"] == "football":
+        task_var1 = "env_name"
+        task_var2 = "number_of_left_players_agent_controls"
+        task_var1_list = ["academy_pass_and_shoot_with_keeper", "academy_run_pass_and_shoot_with_keeper", "academy_3_vs_1_with_keeper", "academy_counterattack_easy"]
+        # task_var1_list = ["academy_run_pass_and_shoot_with_keeper", "academy_3_vs_1_with_keeper", "academy_counterattack_easy","academy_pass_and_shoot_with_keeper"]
+        # task_var1_list = ["academy_pass_and_shoot_with_keeper", "academy_3_vs_1_with_keeper", "academy_counterattack_easy", "academy_counterattack_hard"]
+        task_var2_list = [2,2,3,4]
+        algo_args["train"]["num_env_steps"] = 5000000
+        algo_args["train"]["n_rollout_threads"] = 50
+        algo_args["train"]["episode_length"] = 200
+        algo_args["train"]["log_interval"] = 10
+        algo_args["train"]["eval_interval"] = 10
+
+        algo_args["model"]["hidden_sizes"] = [64,64]
+        algo_args["algo"]["actor_num_mini_batch"] = 2
+        algo_args["algo"]["critic_num_mini_batch"] = 2
+        algo_args["algo"]["ppo_epoch"] = 15
+        algo_args["algo"]["critic_epoch"] = 15
+
+    elif args["env"] == "smac":
+        task_var1 = "map_name"
+        # task_var1_list = ["3m","5m_vs_6m","2s3z","6h_vs_8z"] #not working ["3s5z_vs_3s6z","8m_vs_9m", "10m_vs_11m"]
+        # task_var1_list = ["3m","5m_vs_6m","8m","8m_vs_9m"]
+        # task_var1_list = ["3s_vs_3z","3s_vs_4z","3s5z","3s5z_vs_3s6z"] 
+        # task_var1_list = ["2s_vs_1sc","2s3z","2s4z","1c3s5z"] 
+        if args["sz"] :
+            task_var1_list = ["1s2z","2s1z_vs_3z","2s3z","2s4z"]
+        elif args["sz1"] :
+            # task_var1_list = ["1s2z","2s3z","2s4z","3s5z"]
+            task_var1_list = ["1s2z","2s2z","2s3z","2s4z"]
+        else:
+            task_var1_list = ["3m","5m","7m","8m"]
+        
+        algo_args["model"]["hidden_sizes"] = [256,256]
+
+
+    elif args["env"] == "lag":
+        task_var1 = "task"
+        task_var1_list = ["2v2/NoWeapon/vsBaseline", "2v2/ShootMissile/HierarchyVsBaseline", "2v2/ShootMissile/HierarchyVsBaseline", "2v2/ShootMissile/HierarchyVsBaseline"]
+
+
+    elif args["env"] == "pettingzoo_mpe":
+        task_var1 = "scenario"
+        # task_var1_list = ["simple_v2", "simple_spread_v2", "simple_reference_v2", "simple_speaker_listener_v3"]
+        # task_var1_list = ["simple_v2", "simple_spread_v2", "simple_speaker_listener_v3", "simple_reference_v2"]
+        # task_var1_list = ["simple_reference_v2", "simple_spread_v2", "simple_speaker_listener_v3"]
+        # task_var1_list = ["simple_v2", "simple_speaker_listener_v3", "simple_reference_v2", "simple_spread_v2"]
+        # task_var1_list = ["simple_v2", "simple_speaker_listener_v3",  "simple_spread_v2", "simple_reference_v2"]
+        task_var1_list = ["simple_reference_v2", "simple_speaker_listener_v3", "simple_spread_v2", "simple_spread_v2"]
+    
+
+    elif args["env"] == "mpe2":
+        task_var1 = "scenario"
+        # task_var1_list = ["simple_reference_v3", "simple_speaker_listener_v4", "simple_spread_v3", "simple_formation_v1"]
+
+        # task_var1_list = ["simple_reference_v3", "simple_spread_v3", "simple_line_v1", "simple_formation_v1"]
+        task_var1_list = ["simple_reference_v3", "simple_speaker_listener_v4", "simple_line_v1", "simple_formation_v1"]
+        # algo_args["model"]["hidden_sizes"] = [112,112]
+        # algo_args["model"]["hidden_sizes"] = [64,64]
+
+    elif args["env"] == "atari":
+        task_var1 = "scenario"
+        task_var1_list = ["entombed_cooperative_v3", "joust_v3", "mario_bros_v3", "wizard_of_wor_v3"]
+        # task_var1_list = ["mario_bros_v3", "wizard_of_wor_v3"]
+        # task_var1_list = ["joust_v3", "mario_bros_v3", "wizard_of_wor_v3"]
+        algo_args["model"]["max_obs_length"] = 100800 #max_act_length: 20
+        algo_args["model"]["max_act_length"] = 20
+
+    elif args["env"] == "bsk":
+        task_var1 = "key"
+        # task_var1_list = ["het_cluster-hard-random_res", "het_cluster-hard-random_res"]
+        # task_var1_list = ["het_cluster-easy","het_cluster-easy-random_res","het_cluster-hard", "het_cluster-hard-random_res"]
+        # task_var1_list = ["het_cluster-easy","het_cluster-medium","het_cluster-hard", "het_cluster-hard-random_res"] #
+        task_var1_list = ["het_cluster-easy","het_cluster-medium","het_cluster-hard", "het_cluster-xhard"] #
+        algo_args["train"]["n_rollout_threads"] = 40
+        algo_args["train"]["num_env_steps"] = 300000
+        algo_args["eval"]["n_rollout_threads"] = 10
+        algo_args["eval"]["eval_episodes"] = 5
+
+    train_runner = []
+
+    print("args keys: ", args.keys())
+
+    # print("Check rollout: ", args["train"]["n_rollout_threads"], " torch threads: ", args["train"]["torch_threads"])
+    #algo_args["model"]["hidden_sizes"] = [160,160]
+
+    x_start = time.time()
+
+    for i in range(0,len(task_var1_list)):
+                
+        env_args[task_var1] = task_var1_list[i]
+        if args["env"] == "mamujoco" or args["env"] == "football":
+            env_args[task_var2] = task_var2_list[i]
+
+        if args["env"] == "pettingzoo_mpe" and i==3:
+            # env_args["N"] = 5
+            env_args["N"] = 4
+        elif "N" in env_args.keys():
+            del env_args["N"]
+
+        if args["env"] == "mamujoco" and i==1:
+            # env_args["N"] = 5
+            algo_args["seed"]["ori"] = algo_args["seed"]["seed"]
+            algo_args["seed"]["seed"] = 3
+
+        elif args["env"] == "mamujoco" and i==2:
+            # env_args["N"] = 5
+            algo_args["seed"]["seed"] = algo_args["seed"]["ori"]
+
+        runner = RUNNER_REGISTRY[args["algo"]](args, algo_args, env_args)
+        print("Task: ", i," total agent: ",len(runner.actor))  
+        
+        train_runner.append(runner)
+        # print("runner actor: \n", runner.actor, "------------")
+        print("Size of obs dim: ", runner.actor[0].actor.base.obs_dim, " action dim: ", runner.actor[0].actor.act[0].action_dim)
+
+        if i == 0:
+            agent_total_params = sum(p.numel() for p in runner.actor[i].actor.parameters())
+            print("Print agent total params: ", agent_total_params)
+            agent_rnn_params = sum(p.numel() for p in runner.actor[i].actor.rnn.parameters())
+            print("Print agent rnn params: ", agent_rnn_params)
+            agent_head_params = sum(p.numel() for p in runner.actor[i].actor.act.parameters())
+            print("Print agent head params: ", agent_head_params)
+            # print("Agent key length: ", runner.actor[i].actor.key_length)
+
+        if i > 0:
+            # new_head = copy.deepcopy(train_runner[i].actor[0].actor.act[-1])
+
+            model_transfer(train_runner[i-1], train_runner[i],args)   
+
+            for j in range (0,len(train_runner[i].actor)):
+                # train_runner[i].actor[j].actor.add_new_headlayer(copy.deepcopy(new_head))
+                train_runner[i].actor[j].actor.add_new_headlayer()
+                train_runner[i].actor[j].re_init_optimizer()
+
+        if hasattr(runner.actor[0], 'is_continual_task'):
+            for a in range (0,len(runner.actor)):
+                runner.actor[a].pre_train_process()
+                if i > 0:
+                    runner.actor[a].is_continual_task = True
+
+
+        runner.run()
+
+
+        if hasattr(runner.actor[0], 'is_continual_task'):
+            for a in range (0,len(runner.actor)):
+                runner.actor[a].post_train_process()
+        
+
+        for j in range(0,i+1):
+            if i > 0:
+                model_transfer(runner, train_runner[j],args,False) 
+            print("Eval task: ",j, " on task: ", i,end=" ")
+            eval_runner = train_runner[j]
+            # print("check eval runner head: ", eval_runner.actor[0].actor.act)
+            # print("check eval runner key: , ", len(eval_runner.actor[0].actor.obs_key))
+            
+            eval_runner.eval()
+
+            # for n in range (0,len(eval_runner.actor)):
+            #     eval_runner.actor[n].actor.train()
+
+        # if args["env"] == "smac":
+        #     os.system("pkill -f SC2_x64")
+
+        # if i > 0:
+        #     check_key_similarity(runner,i+1)
+
+    x_finish = time.time()
+    print("Total running time: ", (x_finish-x_start))
+
+    print("After finishing all tasks")
+    agent_total_params = sum(p.numel() for p in runner.actor[-1].actor.parameters())
+    print("Print agent total params: ", agent_total_params)
+    agent_rnn_params = sum(p.numel() for p in runner.actor[-1].actor.rnn.parameters())
+    print("Print agent rnn params: ", agent_rnn_params)
+    agent_head_params = sum(p.numel() for p in runner.actor[-1].actor.act.parameters())
+    print("Print agent head params: ", agent_head_params)
+
+   
+
+
+
+    for i in range(0, len(train_runner)):
+        print("save dir task i : ", i,train_runner[i].save_dir)
+        train_runner[i].close()
+        # runner.close()
+
+
+    # runner = RUNNER_REGISTRY[args["algo"]](args, algo_args, env_args)
+    # runner.run()
+    # runner.close()
+def check_key_similarity(train_runner, num_task=2):
+    import torch
+    cos = torch.nn.CosineSimilarity(dim=-1,eps=1e-6)
+    for i in range(len(train_runner.actor)):
+        actor = train_runner.actor[i].actor
+        cmat = torch.zeros((num_task, num_task)).to(actor.device)
+        cmat2 = torch.zeros((num_task, num_task)).to(actor.device)
+        cmat3 = torch.zeros((num_task, num_task)).to(actor.device)
+        for j in range(num_task):
+            for k in range(num_task):
+                obs_j = l2_normalize(actor.obs_key[j])
+                obs_k = l2_normalize(actor.obs_key[k])
+                feat_j = l2_normalize(actor.feat_key[j])
+                feat_k = l2_normalize(actor.feat_key[k])
+                rfeat_j = l2_normalize(actor.rfeat_key[j])
+                rfeat_k = l2_normalize(actor.rfeat_key[k])
+                # sim = torch.sum(torch.matmul(obs_j,obs_k.t()))/obs_j.shape[0]
+                # sim2 = torch.sum(torch.matmul(feat_j,feat_k.t()))/feat_j.shape[0]
+                # sim3 = torch.sum(torch.matmul(rfeat_j,rfeat_k.t()))/rfeat_j.shape[0]
+                #print("cosisne val: ",cos(obs_j,obs_k))
+                sim = cos(obs_j,obs_k).mean()
+                sim2 = cos(feat_j,feat_k).mean()
+                sim3 = cos(rfeat_j,rfeat_k).mean()
+
+                cmat[j,k] = sim
+                cmat2[j,k] = sim2
+                cmat3[j,k] = sim3
+        print("Actor idx: ",i, "\n obs_key sim: \n", cmat, "\n feat_key sim: \n", cmat2, "\n rfeat_key sim: \n", cmat3)
+
+def model_transfer(src_runner, dst_runner, args, isTraining=True):
+    # print("call model transfer, isTraining = ",isTraining, " algo = ", args["algo"])
+    choices=[
+            "happo",
+            "hatrpo",
+            "haa2c",
+            "haddpg",
+            "hatd3",
+            "hasac",
+            "had3qn",
+            "maddpg",
+            "matd3",
+            "mappo",
+
+            "macpro",
+
+            "happo_mh",
+            "happo_mh2",
+            "happo_mh3",
+            "happo_mh5",
+            "happo_mh6",
+            "happo_mh7",
+            "happo_mh8",
+            "happo_mh9",
+            "happo_mh10",
+            "happo_mh11",
+            "happo_mh12",
+            "happo_mh13",
+            "happo_mh14",
+            "happo_mh15",
+            "happo_mh16",
+            "happo_mh17",
+
+            "happo_mh18",
+            "happo_mh19",
+            "happo_mh20",
+            "happo_mh21",
+            "happo_mh22",
+            "happo_mh23",
+
+            "happo_mh24",
+            "happo_mh25",
+            "happo_mh26",
+            "happo_mh27",
+            "happo_mh28",
+            "happo_mh29",
+
+
+            "happo_ewc",
+            "happo_si",
+            "happo_mas",
+
+            "happo_ewc_mh",
+        ],
+
+    # print("check if algo in choices: ", any(args["algo"] in x  for x in choices))
+    if isTraining:
+        # if args["algo"] == "happo":
+        if any(args["algo"] in x  for x in choices):
+        # if args["algo"] == "happo":
+            print("Model weight transfer for training, algo = ", args["algo"])
+            for i in range (0,len(dst_runner.actor)):
+                if i < len(src_runner.actor):
+                    dst_runner.actor[i].actor.base.load_state_dict(src_runner.actor[i].actor.base.state_dict())
+                    dst_runner.actor[i].actor.rnn = copy.deepcopy(src_runner.actor[i].actor.rnn)
+                    dst_runner.actor[i].actor.act = copy.deepcopy(src_runner.actor[i].actor.act)
+                    dst_runner.actor[i].actor.obs_key = copy.deepcopy(src_runner.actor[i].actor.obs_key)
+
+                    if hasattr(src_runner.actor[i].actor, "rfeat_key"):
+                        dst_runner.actor[i].actor.feat_key = copy.deepcopy(src_runner.actor[i].actor.feat_key)
+                    
+                    if hasattr(src_runner.actor[i].actor, "gating_network_by_key"):
+                        dst_runner.actor[i].actor.gating_network_by_key = copy.deepcopy(src_runner.actor[i].actor.gating_network_by_key)
+
+                    if hasattr(src_runner.actor[i].actor, "gating_network"):
+                        dst_runner.actor[i].actor.gating_network = copy.deepcopy(src_runner.actor[i].actor.gating_network)
+
+                    if hasattr(src_runner.actor[i].actor, "s_experts"):
+                        dst_runner.actor[i].actor.s_experts = copy.deepcopy(src_runner.actor[i].actor.s_experts)
+
+                    if hasattr(src_runner.actor[i].actor, "rfeat_key"):
+                        dst_runner.actor[i].actor.rfeat_key = copy.deepcopy(src_runner.actor[i].actor.rfeat_key)
+
+                    if hasattr(src_runner.actor[i].actor, "fisher"):
+                        dst_runner.actor[i].fisher = copy.deepcopy(src_runner.actor[i].fisher)
+                        dst_runner.actor[i].older_params = copy.deepcopy(src_runner.actor[i].older_params)
+
+                    for param in dst_runner.actor[i].actor.base.parameters():
+                        param.requires_grad = False
+
+                else:
+                    idx = random.randint(0,src_runner.num_agents-1)
+                    dst_runner.actor[i].actor.base.load_state_dict(src_runner.actor[idx].actor.base.state_dict())
+                    dst_runner.actor[i].actor.rnn = copy.deepcopy(src_runner.actor[idx].actor.rnn)
+                    dst_runner.actor[i].actor.act = copy.deepcopy(src_runner.actor[idx].actor.act)
+                    dst_runner.actor[i].actor.obs_key = copy.deepcopy(src_runner.actor[idx].actor.obs_key)
+                    # dst_runner.actor[i].actor.feat_key = copy.deepcopy(src_runner.actor[idx].actor.feat_key)
+
+                    if hasattr(src_runner.actor[idx].actor, "feat_key"):
+                        dst_runner.actor[i].actor.feat_key = copy.deepcopy(src_runner.actor[idx].actor.feat_key)
+
+                    if hasattr(src_runner.actor[idx].actor, "gating_network_by_key"):
+                        dst_runner.actor[i].actor.gating_network_by_key = copy.deepcopy(src_runner.actor[idx].actor.gating_network_by_key)
+
+                    if hasattr(src_runner.actor[idx].actor, "gating_network"):
+                        dst_runner.actor[i].actor.gating_network = copy.deepcopy(src_runner.actor[idx].actor.gating_network)
+
+                    if hasattr(src_runner.actor[idx].actor, "s_experts"):
+                        dst_runner.actor[i].actor.s_experts = copy.deepcopy(src_runner.actor[idx].actor.s_experts)
+
+                    if hasattr(src_runner.actor[idx].actor, "rfeat_key"):
+                        dst_runner.actor[i].actor.rfeat_key = copy.deepcopy(src_runner.actor[idx].actor.rfeat_key)
+
+                    if hasattr(src_runner.actor[idx].actor, "fisher"):
+                        dst_runner.actor[i].fisher = copy.deepcopy(src_runner.actor[idx].fisher)
+                        dst_runner.actor[i].older_params = copy.deepcopy(src_runner.actor[idx].older_params)
+
+                    for param in dst_runner.actor[i].actor.base.parameters():
+                        param.requires_grad = False
+
+            dst_runner.critic.critic.load_state_dict(src_runner.critic.critic.state_dict())
+    else:
+        if any(args["algo"] in x  for x in choices):
+        # if args["algo"] == "happo":
+            print("Model weight transfer for evaluation, algo = ", args["algo"])
+            # for i in range (0,min(dst_runner.num_agents,src_runner.num_agents)):
+            #     # dst_runner.actor[i].actor.load_state_dict(src_runner.actor[i].actor.state_dict())
+            #     dst_runner.actor[i].actor.base.load_state_dict(src_runner.actor[i].actor.base.state_dict())
+            #     dst_runner.actor[i].actor.rnn = copy.deepcopy(src_runner.actor[i].actor.rnn)
+            #     dst_runner.actor[i].actor.act = copy.deepcopy(src_runner.actor[i].actor.act)
+            #     dst_runner.actor[i].actor.obs_key = copy.deepcopy(src_runner.actor[i].actor.obs_key)
+            #     dst_runner.actor[i].actor.feat_key = copy.deepcopy(src_runner.actor[i].actor.feat_key)
+
+            for i in range (0,len(dst_runner.actor)):
+                if i < len(src_runner.actor):
+                    dst_runner.actor[i].actor.base.load_state_dict(src_runner.actor[i].actor.base.state_dict())
+                    dst_runner.actor[i].actor.rnn = copy.deepcopy(src_runner.actor[i].actor.rnn)
+                    dst_runner.actor[i].actor.act = copy.deepcopy(src_runner.actor[i].actor.act)
+                    dst_runner.actor[i].actor.obs_key = copy.deepcopy(src_runner.actor[i].actor.obs_key)
+                    # dst_runner.actor[i].actor.feat_key = copy.deepcopy(src_runner.actor[i].actor.feat_key)
+                    if hasattr(src_runner.actor[i].actor, "rfeat_key"):
+                        dst_runner.actor[i].actor.feat_key = copy.deepcopy(src_runner.actor[i].actor.feat_key)
+
+                    if hasattr(src_runner.actor[i].actor, "gating_network_by_key"):
+                        dst_runner.actor[i].actor.gating_network_by_key = copy.deepcopy(src_runner.actor[i].actor.gating_network_by_key)
+
+                    if hasattr(src_runner.actor[i].actor, "gating_network"):
+                        dst_runner.actor[i].actor.gating_network = copy.deepcopy(src_runner.actor[i].actor.gating_network)
+
+                    if hasattr(src_runner.actor[i].actor, "s_experts"):
+                        dst_runner.actor[i].actor.s_experts = copy.deepcopy(src_runner.actor[i].actor.s_experts)
+
+                    if hasattr(src_runner.actor[i].actor, "rfeat_key"):
+                        dst_runner.actor[i].actor.rfeat_key = copy.deepcopy(src_runner.actor[i].actor.rfeat_key)
+                else:
+                    idx = random.randint(0,src_runner.num_agents-1)
+                    dst_runner.actor[i].actor.base.load_state_dict(src_runner.actor[idx].actor.base.state_dict())
+                    dst_runner.actor[i].actor.rnn = copy.deepcopy(src_runner.actor[idx].actor.rnn)
+                    dst_runner.actor[i].actor.act = copy.deepcopy(src_runner.actor[idx].actor.act)
+                    dst_runner.actor[i].actor.obs_key = copy.deepcopy(src_runner.actor[idx].actor.obs_key)
+                    # dst_runner.actor[i].actor.feat_key = copy.deepcopy(src_runner.actor[idx].actor.feat_key)
+
+                    if hasattr(src_runner.actor[idx].actor, "feat_key"):
+                        dst_runner.actor[i].actor.feat_key = copy.deepcopy(src_runner.actor[idx].actor.feat_key)
+
+                    if hasattr(src_runner.actor[idx].actor, "gating_network_by_key"):
+                        dst_runner.actor[i].actor.gating_network_by_key = copy.deepcopy(src_runner.actor[idx].actor.gating_network_by_key)
+
+                    if hasattr(src_runner.actor[idx].actor, "gating_network"):
+                        dst_runner.actor[i].actor.gating_network = copy.deepcopy(src_runner.actor[idx].actor.gating_network)
+
+                    if hasattr(src_runner.actor[idx].actor, "s_experts"):
+                        dst_runner.actor[i].actor.s_experts = copy.deepcopy(src_runner.actor[idx].actor.s_experts)
+
+                    if hasattr(src_runner.actor[idx].actor, "rfeat_key"):
+                        dst_runner.actor[i].actor.rfeat_key = copy.deepcopy(src_runner.actor[idx].actor.rfeat_key)
+
+            
+            dst_runner.critic.critic.load_state_dict(src_runner.critic.critic.state_dict())
+            
+def l2_normalize(x, dim=None, epsilon=1e-12):
+    import torch
+    """Normalizes a given vector or matrix."""
+    square_sum = torch.sum(x ** 2, dim=dim, keepdim=True)
+    x_inv_norm = torch.rsqrt(torch.maximum(square_sum, torch.tensor(epsilon, device=x.device)))
+    return x * x_inv_norm
+
+if __name__ == "__main__":
+    main()
